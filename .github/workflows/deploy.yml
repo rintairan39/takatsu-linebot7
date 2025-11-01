@@ -1,0 +1,51 @@
+name: Deploy Functions (Python)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  FUNCTION_APP_NAME: takatsu-function2      # ←あなたの関数アプリ名
+  PACKAGE_PATH: build.zip
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps into .python_packages
+        run: |
+          python -m pip install --upgrade pip
+          mkdir -p .python_packages/lib/site-packages
+          pip install -r requirements.txt -t .python_packages/lib/site-packages --only-binary=:all:
+          # 動作確認（ここで落ちたらデプロイ中止）
+          python - <<'PY'
+import sys, os
+sys.path.append(".python_packages/lib/site-packages")
+import googleapiclient.discovery, google.auth, requests, azure.functions
+print("deps OK")
+PY
+
+      - name: Zip package
+        run: |
+          zip -r ${{ env.PACKAGE_PATH }} \
+            host.json \
+            webhook reload \
+            .python_packages \
+            -x "**/.git/*"
+
+      - name: Deploy to Azure Functions
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: ${{ env.PACKAGE_PATH }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE }}
